@@ -154,6 +154,7 @@ def remove_plugins(
     for plugin_name in plugin_names:
         if plugin_name in PROTECTED_PLUGINS:
             continue
+        # profile_manager must not be deleted from the profile that is currently running QGIS
         if is_active_profile and plugin_name == "profile_manager":
             continue
         # Remove plugin from active state list in PythonPlugins section
