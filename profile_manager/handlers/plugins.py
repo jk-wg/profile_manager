@@ -127,7 +127,6 @@ def remove_plugins(
     profile_path: Path,
     qgis_ini_file: Path,
     plugin_names: list[str],
-    is_active_profile: bool = False,
 ):
     """Removes the specified plugins from the profile.
 
@@ -139,7 +138,6 @@ def remove_plugins(
         profile_path: Path of profile directory to remove from
         qgis_ini_file: Path of target QGIS3.ini file to remove from
         plugin_names: List of plugins (names according to QGIS3.ini) to remove
-        is_active_profile: If True, the profile_manager plugin itself is protected from deletion
     """
     logger.log(
         log_level=Qgis.MessageLevel.Info,
@@ -153,9 +151,6 @@ def remove_plugins(
 
     for plugin_name in plugin_names:
         if plugin_name in PROTECTED_PLUGINS:
-            continue
-        # profile_manager must not be deleted from the profile that is currently running QGIS
-        if is_active_profile and plugin_name == "profile_manager":
             continue
         # Remove plugin from active state list in PythonPlugins section
         if ini_parser.has_option("PythonPlugins", plugin_name):

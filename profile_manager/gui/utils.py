@@ -42,10 +42,13 @@ def data_sources_as_tree(
     return tree_root_item
 
 
-def plugins_as_items(plugins: list[str], make_checkable: bool) -> list[QListWidgetItem]:
+def plugins_as_items(
+    plugins: list[str], make_checkable: bool, is_active_profile: bool = False
+) -> list[QListWidgetItem]:
     """Return the plugins as list of QListWidgetItem.
 
     Core Plugins are specially marked.
+    Protected plugins in the active profile are labelled but remain selectable for copying.
     """
     items = []
     for plugin_name in plugins:
@@ -64,6 +67,11 @@ def plugins_as_items(plugins: list[str], make_checkable: bool) -> list[QListWidg
                 plugin_name = f"{plugin_name} (Core Plugin)"
             else:
                 plugin_name = f"{plugin_name} (Protected Plugin)"
+        elif is_active_profile and plugin_name == "profile_manager":
+            # In the active profile the plugin must not be deleted, but can still be copied.
+            # Store the raw name so __selected_plugins() retrieves the correct identifier.
+            item.setData(Qt.ItemDataRole.UserRole, plugin_name)
+            plugin_name = f"{plugin_name} (Protected Plugin)"
         item.setText(plugin_name)
 
         items.append(item)

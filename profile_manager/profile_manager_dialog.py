@@ -277,6 +277,13 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
             self.importThingsButton.setEnabled(True)
             self.removeThingsButton.setEnabled(True)
 
+        # profile_manager must not be deleted from the currently running profile.
+        # If it is selected while the active profile is the source, disable the Remove button.
+        if self.removeThingsButton.isEnabled():
+            active_profile_name = Path(QgsApplication.qgisSettingsDirPath()).name
+            if source == active_profile_name and "profile_manager" in self.__selected_plugins():
+                self.removeThingsButton.setEnabled(False)
+
     def __conditionally_enable_profile_buttons(self):
         """Sets up buttons of the Profiles tab so that the user is not tempted to do "impossible" things.
 
@@ -391,7 +398,11 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
             data_sources_widget.addTopLevelItem(tree_root_item)
 
     def __populate_plugins_list(
-        self, plugins: list[str], plugins_widget: QListWidget, make_checkable: bool
+        self,
+        plugins: list[str],
+        plugins_widget: QListWidget,
+        make_checkable: bool,
+        is_active_profile: bool = False,
     ):
         """Populates the specified widget with a fancy list of available plugins.
 
@@ -399,8 +410,9 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
             plugins: Names of plugins
             plugins_widget: The widget to populate
             make_checkable: If the plugin items should be checkable by the user
+            is_active_profile: If True, profile_manager is labelled as protected (removal disabled)
         """
-        items = plugins_as_items(plugins, make_checkable)
+        items = plugins_as_items(plugins, make_checkable, is_active_profile=is_active_profile)
 
         plugins_widget.clear()
         for item in items:
@@ -471,10 +483,14 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
         self, profile_to_update: Literal["source", "target"], plugins: list[str]
     ):
         if profile_to_update == "source":
+            active_profile_name = Path(QgsApplication.qgisSettingsDirPath()).name
             self.__populate_plugins_list(
                 plugins=plugins,
                 plugins_widget=self.list_plugins,
                 make_checkable=True,
+                is_active_profile=(
+                    self.__profile_manager.source_profile_name == active_profile_name
+                ),
             )
         elif profile_to_update == "target":
             self.__populate_plugins_list(
@@ -642,12 +658,15 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
         for item in self.list_plugins.findItems(
             "", Qt.MatchFlag.MatchContains | Qt.MatchFlag.MatchRecursive
         ):
-            if (
-                item.data(Qt.ItemDataRole.UserRole) is False
-            ):  # Core Plugins are marked with this
+            user_data = item.data(Qt.ItemDataRole.UserRole)
+            if user_data is False:  # Core/fully-protected Plugins are marked with this
                 continue
             if item.checkState() == Qt.CheckState.Checked:
-                plugin_names.append(item.text())
+                # Use the raw name stored in UserRole when available (e.g. items whose
+                # display text has "(Protected Plugin)" appended), else fall back to text.
+                plugin_names.append(
+                    user_data if isinstance(user_data, str) else item.text()
+                )
         return plugin_names
 
     def __import_selected_things(self):
