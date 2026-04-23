@@ -23,6 +23,7 @@ CORE_PLUGINS = [
     "processing",
     "sagaprovider",  # removed in 3.30
 ]
+PROTECTED_PLUGINS = [*CORE_PLUGINS, "profile_manager"]
 
 
 def collect_plugin_names(qgis_ini_file: Path) -> list[str]:
@@ -149,7 +150,7 @@ def remove_plugins(
     ini_parser.read(qgis_ini_file)
 
     for plugin_name in plugin_names:
-        if plugin_name in CORE_PLUGINS:
+        if plugin_name in PROTECTED_PLUGINS:
             continue
         # Remove plugin from active state list in PythonPlugins section
         if ini_parser.has_option("PythonPlugins", plugin_name):
