@@ -184,7 +184,10 @@ class ProfileManager:
         self.source_profile_name = profile_path.name
         self.source_qgis_ini_file = get_qgis_ini_path_from_profile_path(profile_path)
         if not self.source_qgis_ini_file.exists():
-            raise ValueError("Selected source profile has no QGIS3.ini file")
+            raise ValueError(
+                "Selected directory is not a valid QGIS profile "
+                "(missing QGIS3.ini file)"
+            )
         self.source_data_sources = collect_data_sources(self.source_qgis_ini_file)
         self.source_plugins = collect_plugin_names(self.source_qgis_ini_file)
 
@@ -197,9 +200,17 @@ class ProfileManager:
         self.target_plugins = collect_plugin_names(self.target_qgis_ini_file)
 
     def source_and_target_profiles_are_identical(self) -> bool:
+        """Check whether source and target profile paths reference the same profile."""
         if not self.source_profile_path or not self.target_profile_path:
             return False
-        return self.source_profile_path.resolve() == self.target_profile_path.resolve()
+        try:
+            return (
+                self.source_profile_path.resolve()
+                == self.target_profile_path.resolve()
+            )
+        except (OSError, RuntimeError):
+            # RuntimeError can happen with invalid filesystem links / recursion.
+            return False
 
     def make_backup(self, profile_name: str) -> Optional[str]:
         """Creates a backup of the specified profile.

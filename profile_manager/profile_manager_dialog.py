@@ -281,39 +281,36 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
 
         if not any_thing_is_selected:
             # Nothing to do? Don't enable any of the buttons.
-            self.importThingsButton.setEnabled(False)
-            self.removeThingsButton.setEnabled(False)
+            self.__set_import_remove_button_states(False, False)
         elif source is None:
             # Both importing and deleting need a *source* profile to be selected.
-            self.importThingsButton.setEnabled(False)
-            self.removeThingsButton.setEnabled(False)
+            self.__set_import_remove_button_states(False, False)
+        elif has_external_source and target is None:
+            self.__set_import_remove_button_states(False, False)
         elif (
             has_external_source
             and self.__profile_manager.source_and_target_profiles_are_identical()
-            and any_thing_is_selected
         ):
-            self.importThingsButton.setEnabled(False)
-            self.removeThingsButton.setEnabled(False)
-        elif has_external_source and target is not None and any_thing_is_selected:
-            self.importThingsButton.setEnabled(True)
-            self.removeThingsButton.setEnabled(False)
-        elif has_external_source and any_thing_is_selected:
-            self.importThingsButton.setEnabled(False)
-            self.removeThingsButton.setEnabled(False)
+            self.__set_import_remove_button_states(False, False)
+        elif has_external_source:
+            self.__set_import_remove_button_states(True, False)
         elif (
             self.__profile_manager.source_and_target_profiles_are_identical()
             and any_thing_is_selected
         ):
             # Don't allow importing into itself, but allow deletion of the selected things in the source profile.
-            self.importThingsButton.setEnabled(False)
-            self.removeThingsButton.setEnabled(True)
+            self.__set_import_remove_button_states(False, True)
         elif source is not None and target is None and any_thing_is_selected:
             # Only allow deletion of the selected things in the source profile.
-            self.importThingsButton.setEnabled(False)
-            self.removeThingsButton.setEnabled(True)
+            self.__set_import_remove_button_states(False, True)
         else:
-            self.importThingsButton.setEnabled(True)
-            self.removeThingsButton.setEnabled(True)
+            self.__set_import_remove_button_states(True, True)
+
+    def __set_import_remove_button_states(
+        self, import_enabled: bool, remove_enabled: bool
+    ):
+        self.importThingsButton.setEnabled(import_enabled)
+        self.removeThingsButton.setEnabled(remove_enabled)
 
     def __conditionally_enable_profile_buttons(self):
         """Sets up buttons of the Profiles tab so that the user is not tempted to do "impossible" things.
@@ -394,13 +391,22 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
         with wait_cursor():
             try:
                 self.__profile_manager.change_source_profile_path(selected_profile_path)
-            except Exception as err:
+            except ValueError as err:
                 QMessageBox.critical(
                     self,
                     self.tr("Invalid source profile"),
                     self.tr(
                         "The selected directory cannot be used as source profile:\n{}"
                     ).format(err),
+                )
+                return
+            except Exception:
+                QMessageBox.critical(
+                    self,
+                    self.tr("Invalid source profile"),
+                    self.tr(
+                        "The selected directory cannot be used as source profile."
+                    ),
                 )
                 return
 
@@ -416,6 +422,7 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
     def __clear_external_source_profile(
         self, _checked: bool = False, reset_source: bool = True
     ):
+        # QPushButton.clicked provides this argument, but we do not need it here.
         self.__external_source_profile_path = None
         self.externalSourcePathLabel.setText(self.tr("Using source from profile list"))
         self.clearExternalSourceButton.setEnabled(False)
