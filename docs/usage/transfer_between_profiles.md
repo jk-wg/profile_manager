@@ -12,6 +12,7 @@ Profile Manager allows partial configuration transfers without copying an entire
 2. Select:
 
    * Source profile
+   * or click **Browse external source** to use a profile directory copied from another machine
    * Target profile
 
 3. Choose configuration elements to transfer
