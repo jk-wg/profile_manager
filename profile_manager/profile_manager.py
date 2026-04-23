@@ -9,7 +9,7 @@ from shutil import copytree
 from typing import Optional
 
 # PyQGIS
-from qgis.core import Qgis, QgsMessageLog, QgsSettings, QgsUserProfileManager
+from qgis.core import Qgis, QgsApplication, QgsMessageLog, QgsSettings, QgsUserProfileManager
 from qgis.gui import QgisInterface
 from qgis.PyQt.QtCore import QCoreApplication, QLocale, QTranslator
 from qgis.PyQt.QtGui import QIcon
@@ -433,6 +433,10 @@ class ProfileManager:
                     self.source_profile_path,
                     self.source_qgis_ini_file,
                     plugins,
+                    is_active_profile=(
+                        self.source_profile_path
+                        == Path(QgsApplication.qgisSettingsDirPath())
+                    ),
                 )
             except Exception as e:
                 error_messages.append(
