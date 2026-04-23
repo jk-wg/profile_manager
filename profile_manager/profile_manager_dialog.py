@@ -10,8 +10,12 @@ from qgis.PyQt.QtGui import QDesktopServices, QIcon
 from qgis.PyQt.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
     QListWidget,
     QMessageBox,
+    QPushButton,
     QTreeWidget,
 )
 
@@ -44,6 +48,7 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
 
         self.__profile_manager = profile_manager
         self.__everything_is_checked = False
+        self.__external_source_profile_path: Optional[Path] = None
         self.profile_mdl = ProfileListModel(self)
 
         self.btn_standard_buttons.button(
@@ -93,6 +98,16 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
         # tab1.0: data sources
         self.comboBoxNamesSource.setModel(self.profile_mdl)
         self.comboBoxNamesTarget.setModel(self.profile_mdl)
+        self.externalSourcePathLabel = QLabel(self.tr("Using source from profile list"))
+        self.externalSourcePathLabel.setWordWrap(True)
+        self.selectExternalSourceButton = QPushButton(self.tr("Browse external source"))
+        self.clearExternalSourceButton = QPushButton(self.tr("Use listed source"))
+        self.clearExternalSourceButton.setEnabled(False)
+        external_source_button_layout = QHBoxLayout()
+        external_source_button_layout.addWidget(self.selectExternalSourceButton)
+        external_source_button_layout.addWidget(self.clearExternalSourceButton)
+        self.verticalLayout_2.insertLayout(2, external_source_button_layout)
+        self.verticalLayout_2.insertWidget(3, self.externalSourcePathLabel)
         # making sure that the combo boxes are set up correctly
         self.comboBoxNamesSource.currentTextChanged.emit(
             self.comboBoxNamesSource.currentText()
@@ -118,6 +133,12 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
         self.removeProfileButton.clicked.connect(self.__remove_profile)
         self.editProfileButton.clicked.connect(self.__rename_profile)
         self.copyProfileButton.clicked.connect(self.__copy_profile)
+        self.selectExternalSourceButton.clicked.connect(
+            self.__select_external_source_profile
+        )
+        self.clearExternalSourceButton.clicked.connect(
+            self.__clear_external_source_profile
+        )
 
         self.btn_standard_buttons.rejected.connect(self.reject)
         self.btn_standard_buttons.button(
@@ -243,6 +264,7 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
     def __conditionally_enable_import_buttons(self):
         source = self.__profile_manager.source_profile_name
         target = self.__profile_manager.target_profile_name
+        has_external_source = self.__external_source_profile_path is not None
         any_thing_is_selected = any(
             [
                 self.__selected_plugins(),
@@ -265,7 +287,23 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
             # Both importing and deleting need a *source* profile to be selected.
             self.importThingsButton.setEnabled(False)
             self.removeThingsButton.setEnabled(False)
-        elif source == target and any_thing_is_selected:
+        elif (
+            has_external_source
+            and self.__profile_manager.source_and_target_profiles_are_identical()
+            and any_thing_is_selected
+        ):
+            self.importThingsButton.setEnabled(False)
+            self.removeThingsButton.setEnabled(False)
+        elif has_external_source and target is not None and any_thing_is_selected:
+            self.importThingsButton.setEnabled(True)
+            self.removeThingsButton.setEnabled(False)
+        elif has_external_source and any_thing_is_selected:
+            self.importThingsButton.setEnabled(False)
+            self.removeThingsButton.setEnabled(False)
+        elif (
+            self.__profile_manager.source_and_target_profiles_are_identical()
+            and any_thing_is_selected
+        ):
             # Don't allow importing into itself, but allow deletion of the selected things in the source profile.
             self.importThingsButton.setEnabled(False)
             self.removeThingsButton.setEnabled(True)
@@ -320,6 +358,8 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
             self.copyProfileButton.setEnabled(True)
 
     def __on_source_profile_changed(self, profile_name: str):
+        if self.__external_source_profile_path is not None:
+            self.__clear_external_source_profile(reset_source=False)
         self.__profile_manager.change_source_profile(profile_name)
 
         if profile_name is None:
@@ -333,6 +373,54 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
                 "source", self.__profile_manager.source_plugins
             )
         self.__conditionally_enable_import_buttons()
+
+    def __select_external_source_profile(self):
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            self.tr("Select source profile directory"),
+        )
+        if not selected_dir:
+            return
+
+        selected_profile_path = Path(selected_dir)
+        if not selected_profile_path.is_dir():
+            QMessageBox.critical(
+                self,
+                self.tr("Invalid source profile"),
+                self.tr("The selected path is not a directory."),
+            )
+            return
+
+        with wait_cursor():
+            try:
+                self.__profile_manager.change_source_profile_path(selected_profile_path)
+            except Exception as err:
+                QMessageBox.critical(
+                    self,
+                    self.tr("Invalid source profile"),
+                    self.tr(
+                        "The selected directory cannot be used as source profile:\n{}"
+                    ).format(err),
+                )
+                return
+
+        self.__external_source_profile_path = selected_profile_path
+        self.externalSourcePathLabel.setText(
+            self.tr("Using external source: {}").format(selected_profile_path)
+        )
+        self.clearExternalSourceButton.setEnabled(True)
+        self.__update_data_sources_widget("source", self.__profile_manager.source_data_sources)
+        self.__update_plugins_widget("source", self.__profile_manager.source_plugins)
+        self.__conditionally_enable_import_buttons()
+
+    def __clear_external_source_profile(
+        self, _checked: bool = False, reset_source: bool = True
+    ):
+        self.__external_source_profile_path = None
+        self.externalSourcePathLabel.setText(self.tr("Using source from profile list"))
+        self.clearExternalSourceButton.setEnabled(False)
+        if reset_source:
+            self.__on_source_profile_changed(self.comboBoxNamesSource.currentText())
 
     def __on_target_profile_changed(self, profile_name: str):
         self.__profile_manager.change_target_profile(profile_name)
@@ -710,6 +798,16 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
 
         Aborts and shows an error message if no backup could be made.
         """
+        if self.__external_source_profile_path is not None:
+            QMessageBox.information(
+                self,
+                self.tr("Removal"),
+                self.tr(
+                    "Removing items is only available for profiles in the current "
+                    "QGIS installation."
+                ),
+            )
+            return
 
         do_remove_things = QMessageBox.question(
             self,

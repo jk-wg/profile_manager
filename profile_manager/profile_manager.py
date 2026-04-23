@@ -41,7 +41,11 @@ from profile_manager.profiles.profile_handler import (
     remove_profile,
     rename_profile,
 )
-from profile_manager.profiles.utils import get_profile_qgis_ini_path, qgis_profiles_path
+from profile_manager.profiles.utils import (
+    get_profile_qgis_ini_path,
+    get_qgis_ini_path_from_profile_path,
+    qgis_profiles_path,
+)
 from profile_manager.toolbelt import PlgLogger
 from profile_manager.utils import wait_cursor
 
@@ -173,6 +177,17 @@ class ProfileManager:
         self.source_data_sources = collect_data_sources(self.source_qgis_ini_file)
         self.source_plugins = collect_plugin_names(self.source_qgis_ini_file)
 
+    def change_source_profile_path(self, profile_path: Path):
+        if not profile_path.is_dir():
+            raise ValueError("Selected source profile path is not a directory")
+        self.source_profile_path = profile_path
+        self.source_profile_name = profile_path.name
+        self.source_qgis_ini_file = get_qgis_ini_path_from_profile_path(profile_path)
+        if not self.source_qgis_ini_file.exists():
+            raise ValueError("Selected source profile has no QGIS3.ini file")
+        self.source_data_sources = collect_data_sources(self.source_qgis_ini_file)
+        self.source_plugins = collect_plugin_names(self.source_qgis_ini_file)
+
     def change_target_profile(self, profile_name: str):
         # TODO handle profile_name=None without any attempts of data collecting
         self.target_profile_name = profile_name
@@ -180,6 +195,11 @@ class ProfileManager:
         self.target_qgis_ini_file = get_profile_qgis_ini_path(profile_name)
         self.target_data_sources = collect_data_sources(self.target_qgis_ini_file)
         self.target_plugins = collect_plugin_names(self.target_qgis_ini_file)
+
+    def source_and_target_profiles_are_identical(self) -> bool:
+        if not self.source_profile_path or not self.target_profile_path:
+            return False
+        return self.source_profile_path.resolve() == self.target_profile_path.resolve()
 
     def make_backup(self, profile_name: str) -> Optional[str]:
         """Creates a backup of the specified profile.
@@ -253,7 +273,7 @@ class ProfileManager:
     ) -> list[str]:
         """Handles import of all things supported."""
         # safety catch, should be prevented by the GUI
-        if self.source_profile_name == self.target_profile_name:
+        if self.source_and_target_profiles_are_identical():
             return [self.tr("Cannot import things from profile into itself")]
         if not self.target_profile_name:
             return [self.tr("No target profile selected")]

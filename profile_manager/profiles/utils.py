@@ -27,11 +27,30 @@ def get_profile_qgis_ini_path(profile_name: str) -> Path:
     Returns:
         Path: QGIS3.ini path
     """
-    # MacOS
+    return get_qgis_ini_path_from_profile_path(qgis_profiles_path() / profile_name)
+
+
+def get_qgis_ini_path_from_profile_path(profile_path: Path) -> Path:
+    """Get QGIS3.ini file path for a profile path.
+
+    Args:
+        profile_path (Path): profile directory path
+
+    Returns:
+        Path: QGIS3.ini path
+    """
+    potential_paths = [
+        profile_path / "QGIS" / "QGIS3.ini",
+        profile_path / "qgis.org" / "QGIS3.ini",
+    ]
+    for ini_path in potential_paths:
+        if ini_path.exists():
+            return ini_path
+
+    # Fallback to current platform default if no file exists yet.
     if platform.startswith("darwin"):
-        return qgis_profiles_path() / profile_name / "qgis.org" / "QGIS3.ini"
-    # Windows / Linux
-    return qgis_profiles_path() / profile_name / "QGIS" / "QGIS3.ini"
+        return potential_paths[1]
+    return potential_paths[0]
 
 
 def get_profile_plugin_metadata_path(profile_name: str, plugin_slug_name: str) -> Path:
