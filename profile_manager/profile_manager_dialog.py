@@ -659,7 +659,7 @@ class ProfileManagerDialog(QtWidgets.QDialog, FORM_CLASS):
             "", Qt.MatchFlag.MatchContains | Qt.MatchFlag.MatchRecursive
         ):
             user_data = item.data(Qt.ItemDataRole.UserRole)
-            if user_data is False:  # Core/fully-protected Plugins are marked with this
+            if user_data is False:  # Core/fully-disabled plugins are marked with False; semi-protected ones store their raw name as a string
                 continue
             if item.checkState() == Qt.CheckState.Checked:
                 # Use the raw name stored in UserRole when available (e.g. items whose
