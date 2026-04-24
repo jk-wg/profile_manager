@@ -7,19 +7,28 @@ Usage
 
 The script reads a GeoJSON file, extracts the first polygon geometry it finds
 (inside a Feature or FeatureCollection), converts its exterior-ring vertices to
-individual GeoJSON Point Features and HTTP-POSTs each one to the configured API
+individual location payloads and HTTP-POSTs each one to the configured API
 endpoint.
+
+Each request uses the payload shape expected by the API::
+
+    {"nickname": "<nickname>_<index>", "coordinates": [<lon>, <lat>]}
+
+A ``Cookie`` header carrying the CSRF token is included with every request.
 
 Examples
 --------
-    # Default endpoint
-    python scripts/geojson_to_api.py my_area.geojson
+    # Default endpoint with CSRF token
+    python scripts/geojson_to_api.py my_area.geojson --csrf-token MY_CSRF_TOKEN
 
-    # Custom base URL
-    python scripts/geojson_to_api.py my_area.geojson --base-url https://wg-shorts.wheregroup.com
+    # Custom base URL and nickname prefix
+    python scripts/geojson_to_api.py my_area.geojson \\
+        --base-url https://wg-shorts.wheregroup.com \\
+        --csrf-token MY_CSRF_TOKEN \\
+        --nickname my_point
 
-    # With Bearer-token authentication
-    python scripts/geojson_to_api.py my_area.geojson --token MY_SECRET_TOKEN
+    # Preview without sending
+    python scripts/geojson_to_api.py my_area.geojson --csrf-token foo --dry-run
 """
 
 import argparse
@@ -83,33 +92,30 @@ def _find_first_polygon_coords(
     raise ValueError("No Polygon or MultiPolygon geometry found in the GeoJSON file.")
 
 
-def coords_to_point_features(
+def coords_to_payloads(
     exterior_ring: List[List[float]],
-    base_properties: Optional[Dict[str, Any]] = None,
+    nickname_base: str = "point",
 ) -> List[Dict[str, Any]]:
-    """Convert exterior-ring coordinates to a list of GeoJSON Point Features.
+    """Convert exterior-ring coordinates to a list of API location payloads.
+
+    Each payload has the shape ``{"nickname": "<base>_<index>", "coordinates": [lon, lat]}``.
 
     The closing vertex (identical to the first vertex in a valid polygon ring)
     is omitted so that each physical corner is posted exactly once.
     """
-    props = dict(base_properties or {})
-    features = []
+    payloads = []
 
     # A valid polygon ring has the first == last coordinate; drop the duplicate.
     ring = exterior_ring[:-1] if len(exterior_ring) > 1 else exterior_ring
 
     for idx, coord in enumerate(ring):
-        features.append(
+        payloads.append(
             {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": coord,
-                },
-                "properties": {**props, "vertex_index": idx},
+                "nickname": f"{nickname_base}_{idx}",
+                "coordinates": coord,
             }
         )
-    return features
+    return payloads
 
 
 # ---------------------------------------------------------------------------
@@ -117,19 +123,21 @@ def coords_to_point_features(
 # ---------------------------------------------------------------------------
 
 
-def post_feature(
+def post_payload(
     url: str,
-    feature: Dict[str, Any],
-    token: Optional[str] = None,
+    payload: Dict[str, Any],
+    csrf_token: str,
 ) -> Tuple[int, str]:
-    """POST a GeoJSON Feature to *url* and return ``(status_code, body)``."""
-    data = json.dumps(feature).encode("utf-8")
+    """POST a location payload to *url* and return ``(status_code, body)``.
+
+    A ``Cookie`` header carrying the CSRF token is added to every request.
+    """
+    data = json.dumps(payload).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "Cookie": f"csrfToken={csrf_token}",
     }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
 
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
@@ -148,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract the first polygon from a GeoJSON file and POST each vertex "
-            "as a Point Feature to the wg-shorts API."
+            "as a location to the wg-shorts API."
         ),
     )
     parser.add_argument(
@@ -163,18 +171,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--endpoint",
-        default="/api/shorts/",
-        help="API path to POST each point to (default: /api/shorts/).",
+        default="/backend/locations/",
+        help="API path to POST each point to (default: /backend/locations/).",
     )
     parser.add_argument(
-        "--token",
-        default=None,
-        help="Bearer token for Authorization header (optional).",
+        "--csrf-token",
+        default="foo",
+        help="CSRF token sent as Cookie csrfToken=<value> (default: foo).",
+    )
+    parser.add_argument(
+        "--nickname",
+        default="point",
+        help=(
+            "Base nickname for posted locations. Each point is named "
+            "<nickname>_<index> (default: point)."
+        ),
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the features that would be posted without actually sending them.",
+        help="Print the payloads that would be posted without actually sending them.",
     )
     return parser
 
@@ -197,13 +213,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # -- Extract polygon -----------------------------------------------------
     try:
-        exterior_ring, properties = _find_first_polygon_coords(geojson)
+        exterior_ring, _properties = _find_first_polygon_coords(geojson)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    point_features = coords_to_point_features(exterior_ring, properties)
-    print(f"Found {len(point_features)} vertex point(s) in the first polygon.")
+    payloads = coords_to_payloads(exterior_ring, nickname_base=args.nickname)
+    print(f"Found {len(payloads)} vertex point(s) in the first polygon.")
 
     # -- Build target URL ----------------------------------------------------
     base = args.base_url.rstrip("/")
@@ -211,21 +227,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     url = f"{base}{endpoint}"
 
     if args.dry_run:
-        print(f"Dry-run – would POST {len(point_features)} feature(s) to {url}:")
-        for feature in point_features:
-            print(json.dumps(feature, indent=2))
+        print(f"Dry-run – would POST {len(payloads)} payload(s) to {url}:")
+        for payload in payloads:
+            print(json.dumps(payload, indent=2))
         return 0
 
     # -- POST each point -----------------------------------------------------
-    print(f"Posting {len(point_features)} point(s) to {url} …")
+    print(f"Posting {len(payloads)} point(s) to {url} …")
     errors = 0
-    for i, feature in enumerate(point_features, start=1):
-        status, body = post_feature(url, feature, token=args.token)
+    for i, payload in enumerate(payloads, start=1):
+        status, body = post_payload(url, payload, csrf_token=args.csrf_token)
         if 200 <= status < 300:
-            print(f"  [{i}/{len(point_features)}] ✓  status={status}")
+            print(f"  [{i}/{len(payloads)}] ✓  status={status}")
         else:
             print(
-                f"  [{i}/{len(point_features)}] ✗  status={status}  body={body!r}",
+                f"  [{i}/{len(payloads)}] ✗  status={status}  body={body!r}",
                 file=sys.stderr,
             )
             errors += 1
